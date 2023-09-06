@@ -5,24 +5,31 @@ import (
 	"sync"
 	"therealbroker/internal/broker/model"
 	"therealbroker/pkg/broker"
-	"time"
+	"therealbroker/pkg/utils/db"
 )
 
 type Module struct {
 	mu          sync.Mutex
+	dbms        db.Dbms
 	isClosed    bool
 	subscribers map[string]map[chan model.Message]struct{}
-	messages    map[string][]model.Pair
-	nextID      map[string]int
+	//messages    map[string][]model.Message
+	//nextID      map[string]int
 }
 
 func NewModule() broker.Broker {
+	dbms, err := db.InitCassandra()
+	if err != nil {
+		return nil
+	}
+
 	return &Module{
 		mu:          sync.Mutex{},
+		dbms:        dbms,
 		isClosed:    false,
 		subscribers: make(map[string]map[chan model.Message]struct{}),
-		messages:    make(map[string][]model.Pair),
-		nextID:      make(map[string]int),
+		//messages:    make(map[string][]model.Message),
+		//nextID:      make(map[string]int),
 	}
 }
 
@@ -36,6 +43,11 @@ func (m *Module) Close() error {
 		}
 		delete(m.subscribers, subject)
 	}
+
+	if err := m.dbms.Close(); err != nil {
+		return err
+	}
+
 	m.isClosed = true
 
 	return nil
@@ -51,14 +63,13 @@ func (m *Module) Publish(ctx context.Context, subject string, msg model.Message)
 
 	// this line caused trouble in test : TestPublishShouldPreserveOrder
 	//msg.Id = m.nextID[subject]
-	m.nextID[subject]++
+	//m.nextID[subject]++
 
-	pair := model.Pair{
-		msg,
-		time.Now(),
+	//m.messages[subject] = append(m.messages[subject], pair)
+	messageID, err := m.dbms.SendMessage(msg, subject)
+	if err != nil {
+		return -1, err
 	}
-
-	m.messages[subject] = append(m.messages[subject], pair)
 
 	subscribers := m.subscribers[subject]
 	for ch := range subscribers {
@@ -69,7 +80,7 @@ func (m *Module) Publish(ctx context.Context, subject string, msg model.Message)
 		}
 	}
 
-	return msg.Id, nil
+	return messageID, nil
 }
 
 func (m *Module) Subscribe(ctx context.Context, subject string) (<-chan model.Message, error) {
@@ -104,15 +115,11 @@ func (m *Module) Fetch(ctx context.Context, subject string, id int) (model.Messa
 		return model.Message{}, broker.ErrUnavailable
 	}
 
-	messages, ok := m.messages[subject]
-	if !ok || id < 0 || id >= len(messages) {
-		return model.Message{}, broker.ErrInvalidID
+	msg, err := m.dbms.FetchMessage(id, subject)
+
+	if err != nil {
+		return msg, err
 	}
 
-	pair := messages[id]
-	if pair.Message.Expiration > 0 && time.Since(pair.Sent) > pair.Message.Expiration {
-		return model.Message{}, broker.ErrExpiredID
-	}
-
-	return pair.Message, nil
+	return msg, nil
 }

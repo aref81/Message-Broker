@@ -15,7 +15,7 @@ type Message struct {
 	Expiration time.Duration
 }
 
-type Pair struct {
-	Message Message
-	Sent    time.Time
-}
+//type Pair struct {
+//	Message Message
+//	Sent    time.Time
+//}
