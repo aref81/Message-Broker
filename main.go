@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
-	"therealbroker/internal/broker"
+	"google.golang.org/grpc"
+	"log"
+	"net"
+	"therealbroker/api/proto/broker/api/proto"
+	broker2 "therealbroker/internal/broker"
 	"therealbroker/internal/broker/model"
+	"therealbroker/pkg/broker"
 	"time"
 )
 
@@ -13,66 +18,68 @@ import (
 // 3. Basic prometheus metrics ( latency, throughput, etc. ) should be implemented
 // 	  for every base functionality ( publish, subscribe etc. )
 
+type myBrokerServer struct {
+	proto.UnimplementedBrokerServer
+	broker broker.Broker
+}
+
+func (b myBrokerServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) (*proto.PublishResponse, error) {
+	msg := model.Message{
+		Id:         0,
+		Body:       string(pubReq.Body),
+		Expiration: time.Duration(pubReq.ExpirationSeconds),
+	}
+	id, err := b.broker.Publish(ctx, pubReq.Subject, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.PublishResponse{Id: int32(id)}, nil
+}
+
+func (b myBrokerServer) Subscribe(subReq *proto.SubscribeRequest, subServer proto.Broker_SubscribeServer) error {
+	ch, err := b.broker.Subscribe(subServer.Context(), subReq.Subject)
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case msg := <-ch:
+			protoMsg := &proto.MessageResponse{Body: []byte(msg.Body)}
+
+			if err := subServer.Send(protoMsg); err != nil {
+				return err
+			}
+		case <-subServer.Context().Done():
+			return nil
+		}
+	}
+}
+
+func (b myBrokerServer) Fetch(ctx context.Context, fetchReq *proto.FetchRequest) (*proto.MessageResponse, error) {
+	msg, err := b.broker.Fetch(ctx, fetchReq.Subject, int(fetchReq.Id))
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.MessageResponse{Body: []byte(msg.Body)}, nil
+}
+
 func main() {
-	broker := broker.NewModule()
-	ctx := context.Background()
+	listener, err := net.Listen("tcp", ":8081")
 
-	ch1, _ := broker.Subscribe(ctx, "all")
-	id1, _ := broker.Publish(ctx, "all", model.Message{
-		0,
-		"message1",
-		time.Duration(0),
-	})
-	println((<-ch1).Body)
-	msg, err := broker.Fetch(ctx, "all", id1)
 	if err != nil {
-		println(err.Error())
+		log.Fatal("cannot create listener")
 	}
-	println(msg.Body)
-	println("___________________________")
 
-	ch2, _ := broker.Subscribe(ctx, "all")
-	id2, _ := broker.Publish(ctx, "all", model.Message{
-		0,
-		"message2",
-		time.Duration(500),
+	server := grpc.NewServer()
+	proto.RegisterBrokerServer(server, &myBrokerServer{
+		broker: broker2.NewModule(),
 	})
-	println((<-ch1).Body)
-	println((<-ch2).Body)
-	msg, err = broker.Fetch(ctx, "all", id2)
-	if err != nil {
-		println(err.Error())
-	}
-	println(msg.Body)
-	println("___________________________")
 
-	ch3, _ := broker.Subscribe(ctx, "all")
-	id3, _ := broker.Publish(ctx, "all", model.Message{
-		0,
-		"message3",
-		time.Duration(500) * time.Second,
-	})
-	println((<-ch1).Body)
-	println((<-ch2).Body)
-	println((<-ch3).Body)
-	msg, err = broker.Fetch(ctx, "all", id3)
-	if err != nil {
-		println(err.Error())
+	if err := server.Serve(listener); err != nil {
+		log.Fatalf("Server serve failed: %v", err)
 	}
-	println(msg.Body)
-	println("___________________________")
 
-	ch4, _ := broker.Subscribe(ctx, "ali")
-	id4, _ := broker.Publish(ctx, "ali", model.Message{
-		0,
-		"message4",
-		time.Duration(500),
-	})
-	println((<-ch4).Body)
-	msg, err = broker.Fetch(ctx, "ali", id4)
-	if err != nil {
-		println(err.Error())
-	}
-	println(msg.Body)
-	println("___________________________")
 }

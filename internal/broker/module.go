@@ -18,7 +18,7 @@ type Module struct {
 }
 
 func NewModule() broker.Broker {
-	dbms, err := db.InitCassandra()
+	dbms, err := db.InitPostgresql()
 	if err != nil {
 		return nil
 	}
