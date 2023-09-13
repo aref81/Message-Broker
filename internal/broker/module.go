@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"github.com/sirupsen/logrus"
 	"sync"
 	"therealbroker/internal/broker/model"
 	"therealbroker/pkg/broker"
@@ -13,23 +14,22 @@ type Module struct {
 	dbms        db.Dbms
 	isClosed    bool
 	subscribers map[string]map[chan model.Message]struct{}
-	//messages    map[string][]model.Message
-	//nextID      map[string]int
 }
 
 func NewModule() broker.Broker {
-	dbms, err := db.InitPostgresql()
+	logger := logrus.New()
+	dbms, err := db.InitScylla()
 	if err != nil {
+		logger.Println(err.Error())
 		return nil
 	}
+	logger.Println("Connected to DBMS Successfully")
 
 	return &Module{
 		mu:          sync.Mutex{},
 		dbms:        dbms,
 		isClosed:    false,
 		subscribers: make(map[string]map[chan model.Message]struct{}),
-		//messages:    make(map[string][]model.Message),
-		//nextID:      make(map[string]int),
 	}
 }
 
@@ -58,14 +58,9 @@ func (m *Module) Publish(ctx context.Context, subject string, msg model.Message)
 		return -1, broker.ErrUnavailable
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	//m.mu.Lock()
+	//defer m.mu.Unlock()
 
-	// this line caused trouble in test : TestPublishShouldPreserveOrder
-	//msg.Id = m.nextID[subject]
-	//m.nextID[subject]++
-
-	//m.messages[subject] = append(m.messages[subject], pair)
 	messageID, err := m.dbms.SendMessage(msg, subject)
 	if err != nil {
 		return -1, err
