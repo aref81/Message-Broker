@@ -3,6 +3,7 @@ package db
 import (
 	"github.com/sirupsen/logrus"
 	"os"
+	"sync"
 	"therealbroker/internal/broker/model"
 	"therealbroker/pkg/broker"
 	"time"
@@ -12,6 +13,7 @@ type RAM struct {
 	Dbms
 	messages map[string][]model.Pair
 	nextID   map[string]int
+	msgMU    sync.Mutex
 }
 
 func InitRAM() (*RAM, error) {
@@ -24,12 +26,16 @@ func InitRAM() (*RAM, error) {
 	return &RAM{
 		messages: make(map[string][]model.Pair),
 		nextID:   make(map[string]int),
+		msgMU:    sync.Mutex{},
 	}, nil
 }
 
 func (r *RAM) SendMessage(message model.Message, subject string) (int, error) {
 	// this line caused trouble in test : TestPublishShouldPreserveOrder
 	//msg.Id = m.nextID[subject]
+
+	r.msgMU.Lock()
+	defer r.msgMU.Unlock()
 
 	Id := r.nextID[subject]
 

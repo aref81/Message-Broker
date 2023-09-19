@@ -2,6 +2,13 @@ package db
 
 import "therealbroker/internal/broker/model"
 
+const (
+	INMEM     = 0
+	CASSANDRA = 1
+	POSTGRES  = 2
+	SCYLLA    = 3
+)
+
 type Dbms interface {
 	Close() error
 

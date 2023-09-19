@@ -2,6 +2,7 @@ package boot
 
 import (
 	"context"
+	"fmt"
 	"github.com/opentracing/opentracing-go"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -21,22 +22,30 @@ type ProtoServer struct {
 func (b ProtoServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) (*proto.PublishResponse, error) {
 	span := b.Tracer.StartSpan("publish")
 	defer span.Finish()
-	//startTime := time.Now()
+	startTime := time.Now()
+
 	msg := model.Message{
 		Id:         0,
 		Body:       string(pubReq.Body),
 		Expiration: time.Duration(pubReq.ExpirationSeconds),
 	}
 
-	id, err := b.Broker.Publish(ctx, pubReq.Subject, msg)
+	spandex := opentracing.ContextWithSpan(context.Background(), span)
+	id, err := b.Broker.Publish(spandex, pubReq.Subject, msg)
+
+	//Metric
+	methodDuration.WithLabelValues("Publish").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
+
 	if err != nil {
+		//Metric
+		failedRPCCalls.WithLabelValues("Publish").Inc()
 		logRPCError("Publish", err)
 		return nil, err
 	}
 
-	//observeRPCCall("Publish", startTime)
+	//Metric
 	successfulRPCCalls.WithLabelValues("Publish").Inc()
-	//logrus.Println(fmt.Sprintf("Published Message With ID: %d into Subject: %s", id, pubReq.Subject))
+	logrus.Println(fmt.Sprintf("Published Message With ID: %d into Subject: %s", id, pubReq.Subject))
 	return &proto.PublishResponse{Id: int32(id)}, nil
 }
 
@@ -93,15 +102,4 @@ func logRPCError(method string, err error) {
 		"code":    statusCode,
 		"message": err.Error(),
 	}).Error("gRPC call failed")
-}
-
-func observeRPCCall(method string, startTime time.Time, err error) {
-	//elapsed := time.Since(startTime).Seconds()
-	//methodDuration.WithLabelValues(method).Observe(elapsed)
-
-	if status.Code(err) == codes.OK {
-		successfulRPCCalls.WithLabelValues(method).Inc()
-	} else {
-		//failedRPCCalls.WithLabelValues(method).Inc()
-	}
 }

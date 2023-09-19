@@ -1,21 +1,34 @@
 package main
 
 import (
+	"context"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"log"
+	"google.golang.org/grpc/credentials/insecure"
+	"os"
 	"sync"
 	pb "therealbroker/api/proto/broker/api/proto"
 	"time"
 )
 
-func main() {
-	conn, err := grpc.Dial("localhost:8081", grpc.WithInsecure())
+func runMass() {
+	logger := logrus.New()
+	logger.SetLevel(logrus.InfoLevel)
+	logger.Out = os.Stdout
+
+	conn, err := grpc.Dial("localhost:8081", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		logger.Fatalf("Failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func(conn *grpc.ClientConn) {
+		err := conn.Close()
+		if err != nil {
+			logger.Fatalf("Failed to close: %v", err)
+		}
+	}(conn)
 
 	client := pb.NewBrokerClient(conn)
+	ctx := context.Background()
 
 	var wg sync.WaitGroup
 	ticker := time.NewTicker(50 * time.Microsecond) // 0.5 billion request in 20 minutes
@@ -30,7 +43,12 @@ func main() {
 			case <-done:
 				return
 			case <-ticker.C:
-				go publish(err, client)
+				go func() {
+					err := publish(client, ctx)
+					if err != nil {
+						logger.Fatalf("Publish failed: %v", err)
+					}
+				}()
 			}
 		}
 	}(client)
@@ -38,7 +56,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		time.Sleep(60 * time.Second)
+		time.Sleep(10 * time.Minute)
 		ticker.Stop()
 		done <- true
 	}()

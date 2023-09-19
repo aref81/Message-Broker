@@ -19,14 +19,14 @@ export const options = {
             executor: 'constant-vus',
             startTime: '0s',
             exec: 'publish',
-            vus: 10,
+            vus: 200,
             duration: '10m',
         }
     },
 };
 
 export function publish() {
-    client.connect('localhost:8081', {
+    client.connect('localhost:10000', {
         plaintext: true,
     });
 

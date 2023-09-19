@@ -3,21 +3,24 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"log"
 	pb "therealbroker/api/proto/broker/api/proto"
 	"time"
 )
 
-func publish(err error, client pb.BrokerClient) {
-	publishResponse, err := client.Publish(context.Background(), &pb.PublishRequest{
-		Subject:           "example",
+func publish(client pb.BrokerClient, ctx context.Context) error {
+	publishResponse, err := client.Publish(ctx, &pb.PublishRequest{
+		Subject:           "sample",
 		Body:              []byte(fmt.Sprintf("message sent at : %v", time.Now())),
-		ExpirationSeconds: 60,
+		ExpirationSeconds: 10000,
 	})
 	if err != nil {
-		log.Fatalf("Publish failed: %v", err)
+		return err
 	}
-	fmt.Printf("Published message with ID: %d\n", publishResponse.Id)
+
+	logrus.Printf("Published message with ID: %d\n", publishResponse.Id)
+	return nil
 }
 
 func subscribe(err error, client pb.BrokerClient) pb.Broker_SubscribeClient {
@@ -27,4 +30,8 @@ func subscribe(err error, client pb.BrokerClient) pb.Broker_SubscribeClient {
 		log.Fatalf("Subscribe failed: %v", err)
 	}
 	return stream
+}
+
+func main() {
+	runMass()
 }

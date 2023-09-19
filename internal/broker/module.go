@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"github.com/opentracing/opentracing-go"
 	"github.com/sirupsen/logrus"
 	"sync"
 	"therealbroker/internal/broker/model"
@@ -10,23 +11,37 @@ import (
 )
 
 type Module struct {
-	mu          sync.Mutex
+	subsMu      sync.Mutex
 	dbms        db.Dbms
 	isClosed    bool
 	subscribers map[string]map[chan model.Message]struct{}
 }
 
-func NewModule() broker.Broker {
+func NewModule(dbType int) broker.Broker {
 	logger := logrus.New()
-	dbms, err := db.InitScylla()
+
+	var dbms db.Dbms
+	var err error
+
+	switch dbType {
+	case db.INMEM:
+		dbms, err = db.InitRAM()
+	case db.POSTGRES:
+		dbms, err = db.InitPostgresql()
+	case db.CASSANDRA:
+		dbms, err = db.InitCassandra()
+	case db.SCYLLA:
+		dbms, err = db.InitScylla()
+	}
+
 	if err != nil {
-		logger.Println(err.Error())
+		logger.Error(err.Error())
 		return nil
 	}
 	logger.Println("Connected to DBMS Successfully")
 
 	return &Module{
-		mu:          sync.Mutex{},
+		subsMu:      sync.Mutex{},
 		dbms:        dbms,
 		isClosed:    false,
 		subscribers: make(map[string]map[chan model.Message]struct{}),
@@ -34,8 +49,8 @@ func NewModule() broker.Broker {
 }
 
 func (m *Module) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
 
 	for subject, subscribers := range m.subscribers {
 		for ch := range subscribers {
@@ -58,9 +73,8 @@ func (m *Module) Publish(ctx context.Context, subject string, msg model.Message)
 		return -1, broker.ErrUnavailable
 	}
 
-	//m.mu.Lock()
-	//defer m.mu.Unlock()
-
+	span, _ := opentracing.StartSpanFromContext(ctx, "publish: module")
+	defer span.Finish()
 	messageID, err := m.dbms.SendMessage(msg, subject)
 	if err != nil {
 		return -1, err
@@ -83,8 +97,8 @@ func (m *Module) Subscribe(ctx context.Context, subject string) (<-chan model.Me
 		return nil, broker.ErrUnavailable
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
 
 	ch := make(chan model.Message, 100)
 	subscribers, ok := m.subscribers[subject]
@@ -96,8 +110,8 @@ func (m *Module) Subscribe(ctx context.Context, subject string) (<-chan model.Me
 
 	go func() {
 		<-ctx.Done()
-		m.mu.Lock()
-		defer m.mu.Unlock()
+		m.subsMu.Lock()
+		defer m.subsMu.Unlock()
 		delete(subscribers, ch)
 		close(ch)
 	}()

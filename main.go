@@ -34,6 +34,8 @@ func (b myBrokerServer) Publish(ctx context.Context, pubReq *proto.PublishReques
 		return nil, err
 	}
 
+	println(id)
+
 	return &proto.PublishResponse{Id: int32(id)}, nil
 }
 
