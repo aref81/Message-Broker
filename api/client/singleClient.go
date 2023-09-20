@@ -8,8 +8,8 @@ import (
 	pb "therealbroker/api/proto/broker/api/proto"
 )
 
-func runSingle() {
-	conn, err := grpc.Dial("localhost:8081", grpc.WithInsecure())
+func runSingle(host string) {
+	conn, err := grpc.Dial(host, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}

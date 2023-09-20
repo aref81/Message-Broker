@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-func runMass() {
+func runMass(host string) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.InfoLevel)
 	logger.Out = os.Stdout
 
-	conn, err := grpc.Dial("localhost:8081", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		logger.Fatalf("Failed to connect: %v", err)
 	}
@@ -31,7 +31,7 @@ func runMass() {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	ticker := time.NewTicker(50 * time.Microsecond) // 0.5 billion request in 20 minutes
+	ticker := time.NewTicker(50 * time.Microsecond)
 
 	done := make(chan bool)
 

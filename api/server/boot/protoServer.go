@@ -20,7 +20,7 @@ type ProtoServer struct {
 }
 
 func (b ProtoServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) (*proto.PublishResponse, error) {
-	span := b.Tracer.StartSpan("publish")
+	span := b.Tracer.StartSpan("publish : protoServer")
 	defer span.Finish()
 	startTime := time.Now()
 
@@ -34,29 +34,43 @@ func (b ProtoServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) 
 	id, err := b.Broker.Publish(spandex, pubReq.Subject, msg)
 
 	//Metric
-	methodDuration.WithLabelValues("Publish").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
+	methodDuration.WithLabelValues("publish").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
 
 	if err != nil {
 		//Metric
-		failedRPCCalls.WithLabelValues("Publish").Inc()
+		failedRPCCalls.WithLabelValues("subscribe").Inc()
+
 		logRPCError("Publish", err)
 		return nil, err
 	}
 
 	//Metric
 	successfulRPCCalls.WithLabelValues("Publish").Inc()
+
 	logrus.Println(fmt.Sprintf("Published Message With ID: %d into Subject: %s", id, pubReq.Subject))
 	return &proto.PublishResponse{Id: int32(id)}, nil
 }
 
 func (b ProtoServer) Subscribe(subReq *proto.SubscribeRequest, subServer proto.Broker_SubscribeServer) error {
-	//startTime := time.Now()
+	span := b.Tracer.StartSpan("subscribe : protoServer")
+	defer span.Finish()
+	startTime := time.Now()
 
-	ch, err := b.Broker.Subscribe(subServer.Context(), subReq.Subject)
+	spandex := opentracing.ContextWithSpan(context.Background(), span)
+	ch, err := b.Broker.Subscribe(spandex, subReq.Subject)
+
+	//Metric
+	methodDuration.WithLabelValues("subscribe").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
+
 	if err != nil {
+		//Metric
+		failedRPCCalls.WithLabelValues("subscribe").Inc()
 		logRPCError("Subscribe", err)
 		return err
 	}
+
+	//Metric
+	successfulRPCCalls.WithLabelValues("Publish").Inc()
 
 	go func() {
 		for {
@@ -79,15 +93,27 @@ func (b ProtoServer) Subscribe(subReq *proto.SubscribeRequest, subServer proto.B
 }
 
 func (b ProtoServer) Fetch(ctx context.Context, fetchReq *proto.FetchRequest) (*proto.MessageResponse, error) {
-	//startTime := time.Now()
+	span := b.Tracer.StartSpan("fetch : protoServer")
+	defer span.Finish()
+	startTime := time.Now()
 
-	msg, err := b.Broker.Fetch(ctx, fetchReq.Subject, int(fetchReq.Id))
+	spandex := opentracing.ContextWithSpan(context.Background(), span)
+	msg, err := b.Broker.Fetch(spandex, fetchReq.Subject, int(fetchReq.Id))
+
+	//Metric
+	methodDuration.WithLabelValues("fetch").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
+
 	if err != nil {
+		//Metric
+		failedRPCCalls.WithLabelValues("fetch").Inc()
+
 		logRPCError("Fetch", err)
 		return nil, err
 	}
 
-	//observeRPCCall("Fetch", startTime)
+	//Metric
+	successfulRPCCalls.WithLabelValues("fetch").Inc()
+
 	return &proto.MessageResponse{Body: []byte(msg.Body)}, nil
 }
 

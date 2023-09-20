@@ -65,6 +65,9 @@ func main() {
 		Tracer: tracer,
 	})
 
+	//prometheus
+	go boot.InitPrometheus()
+
 	logger.Println("SERVER STARTED SUCCESSFULLY!")
 
 	if err := server.Serve(listener); err != nil {
