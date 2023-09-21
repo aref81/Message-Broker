@@ -31,7 +31,7 @@ func runMass(host string) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	ticker := time.NewTicker(50 * time.Microsecond)
+	ticker := time.NewTicker(25 * time.Microsecond)
 
 	done := make(chan bool)
 

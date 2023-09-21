@@ -2,16 +2,15 @@ package main
 
 import (
 	_ "fmt"
+	"github.com/opentracing/opentracing-go"
+	"github.com/uber/jaeger-client-go"
+	"github.com/uber/jaeger-client-go/config"
 	"io"
 	"net"
 	"os"
 	_ "strconv"
 	"therealbroker/api/server/boot"
 	"therealbroker/pkg/utils/db"
-
-	"github.com/opentracing/opentracing-go"
-	"github.com/uber/jaeger-client-go"
-	"github.com/uber/jaeger-client-go/config"
 
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -30,7 +29,7 @@ func main() {
 		logger.Fatalf("cannot create listener: %v", err)
 	}
 
-	// jaeger
+	//jaeger
 	cfg := &config.Configuration{
 		ServiceName: "publisher",
 
@@ -61,8 +60,8 @@ func main() {
 	// grpc server
 	server := grpc.NewServer()
 	proto.RegisterBrokerServer(server, &boot.ProtoServer{
-		Broker: broker2.NewModule(db.INMEM),
-		Tracer: tracer,
+		Broker: broker2.NewModule(db.POSTGRES),
+		Tracer: nil,
 	})
 
 	//prometheus

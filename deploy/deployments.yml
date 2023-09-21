@@ -16,7 +16,8 @@ spec:
     spec:
       containers:
         - name: broker
-          image: yes/broker
+          image: broker-app
+          imagePullPolicy: Never
           ports:
             - name: grpc
               containerPort: 8081

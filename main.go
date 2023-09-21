@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc"
-	"log"
-	"net"
+	"fmt"
+	"math/rand"
 	"therealbroker/api/proto/broker/api/proto"
-	broker2 "therealbroker/internal/broker"
 	"therealbroker/internal/broker/model"
 	"therealbroker/pkg/broker"
 	"time"
@@ -69,19 +67,60 @@ func (b myBrokerServer) Fetch(ctx context.Context, fetchReq *proto.FetchRequest)
 }
 
 func main() {
-	listener, err := net.Listen("tcp", ":8081")
+	//listener, err := net.Listen("tcp", ":8081")
+	//
+	//if err != nil {
+	//	log.Fatal("cannot create listener")
+	//}
+	//
+	//server := grpc.NewServer()
+	//proto.RegisterBrokerServer(server, &myBrokerServer{
+	//	broker: broker2.NewModule(db.),
+	//})
+	//
+	//if err := server.Serve(listener); err != nil {
+	//	log.Fatalf("Server serve failed: %v", err)
+	//}
 
-	if err != nil {
-		log.Fatal("cannot create listener")
+	seen := make(map[int64]bool)
+
+	for i := 0; i < 1000000000; i++ {
+		id := generateUniqueID()
+		if seen[id] {
+			fmt.Println("Duplicates")
+			return // Found a duplicate
+		}
+		seen[id] = true
+
+		if i%10000 == 0 {
+			fmt.Println(i)
+		}
 	}
 
-	server := grpc.NewServer()
-	proto.RegisterBrokerServer(server, &myBrokerServer{
-		broker: broker2.NewModule(),
-	})
+	fmt.Println("No Duplicates")
 
-	if err := server.Serve(listener); err != nil {
-		log.Fatalf("Server serve failed: %v", err)
+}
+
+func generateUniqueID() int64 {
+	timestamp := time.Now().UnixNano()
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomPart := r.Int63()
+	uniqueID := timestamp + randomPart
+	if uniqueID < 0 {
+		uniqueID = -uniqueID
+	}
+	return uniqueID
+}
+
+func hasDuplicates(arr []int) bool {
+	seen := make(map[int]bool)
+
+	for _, item := range arr {
+		if seen[item] {
+			return true // Found a duplicate
+		}
+		seen[item] = true
 	}
 
+	return false // No duplicates found
 }

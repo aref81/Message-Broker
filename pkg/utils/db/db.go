@@ -1,6 +1,10 @@
 package db
 
-import "therealbroker/internal/broker/model"
+import (
+	"math/rand"
+	"therealbroker/internal/broker/model"
+	"time"
+)
 
 const (
 	INMEM     = 0
@@ -18,4 +22,15 @@ type Dbms interface {
 	SendMessage(message model.Message, subject string) (int, error)
 	FetchMessage(messageId int, subject string) (model.Message, error)
 	//DeleteMessage(messageId int) (model.Message, error)
+}
+
+func GenerateUniqueID() int {
+	timestamp := int(time.Now().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomPart := r.Int()
+	uniqueID := timestamp + randomPart
+	if uniqueID < 0 {
+		uniqueID = -uniqueID
+	}
+	return uniqueID
 }

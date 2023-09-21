@@ -26,7 +26,7 @@ export const options = {
 };
 
 export function publish() {
-    client.connect('localhost:10000', {
+    client.connect('localhost:8081', {
         plaintext: true,
     });
 

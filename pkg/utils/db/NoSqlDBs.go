@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	_ "fmt"
 	"log"
 	"time"
@@ -25,6 +26,13 @@ type NoSqlDB struct {
 
 func InitCassandra() (*NoSqlDB, error) {
 	cluster := gocql.NewCluster(cassandraHosts)
+
+	err := createKeySpace(cluster, cassandraKeyspace)
+	if err != nil {
+		log.Fatal(err)
+		return nil, err
+	}
+
 	cluster.Keyspace = cassandraKeyspace
 	cluster.Consistency = gocql.Quorum
 
@@ -57,6 +65,13 @@ func InitCassandra() (*NoSqlDB, error) {
 
 func InitScylla() (*NoSqlDB, error) {
 	cluster := gocql.NewCluster(scyllaHosts)
+
+	err := createKeySpace(cluster, scyllaKeyspace)
+	if err != nil {
+		log.Fatal(err)
+		return nil, err
+	}
+
 	cluster.Keyspace = scyllaKeyspace
 	cluster.Consistency = gocql.Quorum
 
@@ -85,6 +100,22 @@ func InitScylla() (*NoSqlDB, error) {
 	return &NoSqlDB{
 		session: session,
 	}, nil
+}
+
+func createKeySpace(cluster *gocql.ClusterConfig, keysSpace string) error {
+	cluster.Keyspace = "system"
+	session, err := cluster.CreateSession()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	replicationStrategy := fmt.Sprintf("{'class':'SimpleStrategy', 'replication_factor':%d}", 1)
+	createKeyspaceQuery := fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = %s", keysSpace, replicationStrategy)
+	if err := session.Query(createKeyspaceQuery).Exec(); err != nil {
+		log.Fatal(err)
+	}
+	session.Close()
+	return err
 }
 
 func (ns *NoSqlDB) SendMessage(message model.Message, subject string) (int, error) {

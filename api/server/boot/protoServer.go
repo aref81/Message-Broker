@@ -38,9 +38,9 @@ func (b ProtoServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) 
 
 	if err != nil {
 		//Metric
-		failedRPCCalls.WithLabelValues("subscribe").Inc()
+		//failedRPCCalls.WithLabelValues("subscribe").Inc()
 
-		logRPCError("Publish", err)
+		//logRPCError("Publish", err)
 		return nil, err
 	}
 

@@ -33,5 +33,5 @@ func subscribe(err error, client pb.BrokerClient) pb.Broker_SubscribeClient {
 }
 
 func main() {
-	runMass("localhost:10000")
+	runMass("localhost:8081")
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/jackc/pgx/v4"
+	_ "github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
-	"log"
+	_ "strings"
 	"sync"
 	"therealbroker/internal/broker/model"
 	"therealbroker/pkg/broker"
@@ -22,236 +24,167 @@ const (
 	dbname        = "postgres"
 	maxConnection = 100
 
-	maxBatchSize = 30000
+	syncInterval = 10 * time.Millisecond
+	batchSize    = 200000
 )
 
 type PostgresDB struct {
 	Dbms
-	db   *sql.DB
 	pool *pgxpool.Pool
+	mu   sync.Mutex
 
-	mu               sync.Mutex
-	maxBatchSize     int
-	accumulatedCount int
-	messages         []model.Message
-	subjects         []string
+	messages [][]interface{}
+	ctx      context.Context
 }
 
-//func InitPostgresql() (*PostgresDB, error) {
-//	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable pool_max_conns=%d",
-//		host, port, user, password, dbname, maxConnection)
-//
-//	db, err := sql.Open("postgres", psqlInfo)
-//	if err != nil {
-//		return &PostgresDB{}, err
-//	}
-//
-//	_, err = db.Exec(`
-//		CREATE TABLE IF NOT EXISTS messages (
-//			id SERIAL PRIMARY KEY,
-//			subject TEXT,
-//			body TEXT,
-//-- 			publishedAt TIMESTAMP,
-//			expiration TIMESTAMP
-//		);
-//	`)
-//
-//	if err != nil {
-//		err = db.Close()
-//		return &PostgresDB{}, err
-//	}
-//
-//	return &PostgresDB{
-//		db: db,
-//	}, err
-//}
-
 func InitPostgresql() (*PostgresDB, error) {
-	config, err := pgxpool.ParseConfig(fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable pool_max_conns=%d",
-		host, port, user, password, dbname, maxConnection))
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+
+	poolConfig, err := pgxpool.ParseConfig(psqlInfo)
 	if err != nil {
-		return &PostgresDB{}, err
+		return nil, err
 	}
 
-	pool, err := pgxpool.ConnectConfig(context.Background(), config)
+	poolConfig.MaxConns = maxConnection
+
+	pool, err := pgxpool.ConnectConfig(context.Background(), poolConfig)
 	if err != nil {
-		return &PostgresDB{}, err
+		return nil, err
 	}
 
 	_, err = pool.Exec(context.Background(), `
-	   CREATE TABLE IF NOT EXISTS messages (
-	       id SERIAL PRIMARY KEY,
-	       subject TEXT,
-	       body TEXT,
-	       expiration TIMESTAMP
-	   );
+		CREATE TABLE IF NOT EXISTS messages (
+			id BIGINT PRIMARY KEY,
+			subject TEXT,
+			body TEXT,
+			expiration TIMESTAMP
+		);
 	`)
 
 	if err != nil {
-		pool.Close()
-		return &PostgresDB{}, err
+		return nil, err
 	}
 
-	//	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-	//		host, port, user, password, dbname)
-	//
-	//	db, err := sql.Open("postgres", psqlInfo)
-	//	if err != nil {
-	//		return &PostgresDB{}, err
-	//	}
-	//
-	//	_, err = db.Exec(`
-	//		CREATE TABLE IF NOT EXISTS messages (
-	//			id SERIAL PRIMARY KEY,
-	//			subject TEXT,
-	//			body TEXT,
-	//-- 			publishedAt TIMESTAMP,
-	//			expiration TIMESTAMP
-	//		);
-	//	`)
-	//
-	//	if err != nil {
-	//		err = db.Close()
-	//		return &PostgresDB{}, err
-	//	}
+	ps := &PostgresDB{
+		pool:     pool,
+		mu:       sync.Mutex{},
+		messages: make([][]interface{}, 0),
+		ctx:      context.Background(),
+	}
 
-	return &PostgresDB{
-		pool:         pool,
-		mu:           sync.Mutex{},
-		maxBatchSize: maxBatchSize,
-		messages:     make([]model.Message, 0),
-		subjects:     make([]string, 0),
-	}, err
+	//go databaseSyncer(ps)
+	return ps, err
 }
-
-//func (ps *PostgresDB) SendMessage(message model.Message, subject string) (int, error) {
-//	_, _ = ps.db.Exec(`
-//		INSERT INTO messages (subject, body, expiration)
-//		VALUES ($1, $2, $3)
-//		`, subject, message.Body, time.Now())
-//
-//	//var id int64
-//	//err := row.Scan(&id)
-//	//if err != nil {
-//	//	return -1, err
-//	//}
-//
-//	return 0, nil
-//}
-
-//func (ps *PostgresDB) SendMessage(message model.Message, subject string) (int, error) {
-//	_, err := ps.pool.Exec(context.Background(), `
-//        INSERT INTO messages (subject, body, expiration)
-//        VALUES ($1, $2, $3)
-//    `, subject, message.Body, time.Now())
-//
-//	if err != nil {
-//		return -1, err
-//	}
-//
-//	return 0, nil
-//}
 
 func (ps *PostgresDB) SendMessage(message model.Message, subject string) (int, error) {
-	ps.messages = append(ps.messages, message)
-	ps.subjects = append(ps.subjects, subject)
-	ps.accumulatedCount++
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 
-	if ps.accumulatedCount >= maxBatchSize {
-		messagesCp := ps.messages
-		subjectsCP := ps.subjects
+	//postID := int(time.Now().UnixNano())
+	postID := GenerateUniqueID()
+	message.Id = postID
 
-		count := ps.accumulatedCount
+	ps.messages = append(ps.messages,
+		[]interface{}{
+			postID,
+			subject,
+			message.Body,
+			time.Now().Add(message.Expiration),
+		})
 
-		ps.messages = make([]model.Message, 0)
-		ps.subjects = make([]string, 0)
-		ps.accumulatedCount = 0
-
-		go func() {
-			err := ps.executeBatchQuery(messagesCp, subjectsCP, count)
-			if err != nil {
-				logrus.Fatalf("Postgres Error : %s", err.Error())
-			}
-		}()
+	// batching based on maxSize
+	if len(ps.messages) >= batchSize {
+		go ps.sync()
 	}
 
-	return 0, nil
+	return message.Id, nil
 }
 
-func (ps *PostgresDB) executeBatchQuery(messages []model.Message, subjects []string, count int) error {
+func databaseSyncer(ps *PostgresDB) {
+	ticker := time.NewTicker(syncInterval)
 
-	tx, err := ps.pool.Begin(context.Background())
-	if err != nil {
-		log.Fatalf("Error starting transaction: %v", err)
-	}
-	defer tx.Rollback(context.Background())
-
-	stmt := "INSERT INTO messages (subject, body, expiration) VALUES ($1, $2, $3)"
-
-	for i, msg := range messages {
-		_, err := tx.Exec(context.Background(), stmt, subjects[i], msg.Body, time.Now())
-		if err != nil {
-			log.Fatalf("Error inserting row %d: %v", i, err)
+	for {
+		select {
+		case <-ps.ctx.Done():
+			return
+		case <-ticker.C:
+			ps.sync()
 		}
 	}
-	err = tx.Commit(context.Background())
+}
+
+func (ps *PostgresDB) sync() {
+	ps.mu.Lock()
+
+	messages := ps.messages
+	ps.messages = make([][]interface{}, 0)
+
+	ps.mu.Unlock()
+
+	if len(messages) != 0 {
+		//chunks := chunkSlice(messages, batchSize)
+		//err := ps.bulkInsert(chunks)
+		err := ps.bulkInsert(messages)
+		if err != nil {
+			logrus.Fatalf("ERROR: cannot insert to database: %s", err)
+		}
+	}
+}
+
+//func (ps *PostgresDB) bulkInsert(messageChunks [][][]interface{}) error {
+//	for _, chunk := range messageChunks {
+//		valueStrings := make([]string, 0, len(chunk))
+//		valueArgs := make([]interface{}, 0, len(chunk)*4)
+//		for i, msg := range chunk {
+//			valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d)", i*4+1, i*4+2, i*4+3, i*4+4))
+//			valueArgs = append(valueArgs, msg[0])
+//			valueArgs = append(valueArgs, msg[1])
+//			valueArgs = append(valueArgs, msg[2])
+//			valueArgs = append(valueArgs, msg[3])
+//		}
+//		stmt := fmt.Sprintf("INSERT INTO messages (id, subject, body, expiration) VALUES %s",
+//			strings.Join(valueStrings, ","))
+//		_, err := ps.pool.Exec(context.Background(), stmt, valueArgs...)
+//		if err != nil {
+//			return err
+//		}
+//	}
+//	return nil
+//}
+
+func (ps *PostgresDB) bulkInsert(messages [][]interface{}) error {
+	_, err := ps.pool.CopyFrom(ps.ctx,
+		pgx.Identifier{"messages"},
+		[]string{"id", "subject", "body", "expiration"},
+		pgx.CopyFromRows(messages),
+	)
 	if err != nil {
-		log.Fatalf("Error committing transaction: %v", err)
+		logrus.Fatalf("ERROR: cannot insert to postgresql: %s", err.Error())
 	}
 
 	return nil
 }
 
-//func (ps *PostgresDB) executeBatchQuery(messages []model.Message, subjects []string, count int) error {
-//	tx, err := ps.db.Begin()
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	defer tx.Rollback()
-//
-//	stmt, err := tx.Prepare("INSERT INTO messages (subject, body, expiration) VALUES ($1, $2, $3)")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	defer stmt.Close()
-//
-//	// Loop through the data and perform batch inserts
-//	for i, msg := range messages {
-//		_, err := stmt.Exec(subjects[i], msg.Body, time.Now())
-//		if err != nil {
-//			log.Fatalf("Error inserting row %d: %v", i, err)
-//		}
-//
-//		// Commit the transaction if we've reached the batch size or processed all data
-//		//if (i+1)%maxBatchSize == 0 || (i+1) == len(data) {
-//		//	err = tx.Commit()
-//		//	if err != nil {
-//		//		log.Fatal(err)
-//		//	}
-//		//
-//		//	// Start a new transaction
-//		//	tx, err = db.Begin()
-//		//	if err != nil {
-//		//		log.Fatal(err)
-//		//	}
-//		//	defer tx.Rollback() // Rollback if there's an error, otherwise, we'll commit at the end
-//		//}
-//	}
-//
-//	err = tx.Commit()
-//	if err != nil {
-//		log.Fatal(err)
-//		return err
-//	}
-//
-//	return nil
-//}
+func chunkSlice(slice [][]interface{}, chunkSize int) [][][]interface{} {
+	var result [][][]interface{}
+
+	for i := 0; i < len(slice); i += chunkSize {
+		end := i + chunkSize
+		if end > len(slice) {
+			end = len(slice)
+		}
+		result = append(result, slice[i:end])
+	}
+
+	return result
+}
 
 func (ps *PostgresDB) FetchMessage(messageId int, subject string) (model.Message, error) {
 	var message model.Message
 	var expiration time.Time
 
-	err := ps.db.QueryRow(`
+	err := ps.pool.QueryRow(ps.ctx, `
 		SELECT id, body, expiration
 		FROM messages
 		WHERE subject = $1 AND id = $2

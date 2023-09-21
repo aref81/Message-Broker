@@ -97,6 +97,9 @@ func (m *Module) Subscribe(ctx context.Context, subject string) (<-chan model.Me
 		return nil, broker.ErrUnavailable
 	}
 
+	span, _ := opentracing.StartSpanFromContext(ctx, "subscribe: module")
+	defer span.Finish()
+
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 
@@ -123,6 +126,9 @@ func (m *Module) Fetch(ctx context.Context, subject string, id int) (model.Messa
 	if m.isClosed {
 		return model.Message{}, broker.ErrUnavailable
 	}
+
+	span, _ := opentracing.StartSpanFromContext(ctx, "fetch: module")
+	defer span.Finish()
 
 	msg, err := m.dbms.FetchMessage(id, subject)
 
