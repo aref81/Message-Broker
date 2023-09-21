@@ -1,19 +1,12 @@
-FROM golang:latest as builder
+FROM golang:1.20-alpine as builder
 LABEL authors="mohammadhoseinaref"
 
-
-RUN apt -y update
-
-
-RUN apt install -y protobuf-compiler
-
-
-RUN apt install -y make
-RUN apt install -y build-essential
-
 WORKDIR /app
-COPY go.mod .
-COPY go.sum .
-RUN go mod tidy
 COPY . .
-CMD go run ./api/server/main.go
+RUN go build -o server api/server/main.go
+RUN ls
+
+FROM alpine:3.17
+COPY --from=builder /app/server /server
+RUN ls
+CMD ./server
