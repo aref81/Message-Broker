@@ -34,6 +34,7 @@ type PostgresDB struct {
 	mu   sync.Mutex
 
 	messages [][]interface{}
+	n        int
 	ctx      context.Context
 }
 
@@ -82,7 +83,8 @@ func (ps *PostgresDB) SendMessage(message model.Message, subject string) (int, e
 	defer ps.mu.Unlock()
 
 	//postID := int(time.Now().UnixNano())
-	postID := GenerateUniqueID()
+	postID := ps.n
+	ps.n++
 	message.Id = postID
 
 	ps.messages = append(ps.messages,

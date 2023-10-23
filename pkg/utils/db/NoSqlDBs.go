@@ -140,7 +140,7 @@ func (ns *NoSqlDB) FetchMessage(messageId int, subject string) (model.Message, e
 		FROM yes.messages
 		WHERE subject = ? AND id = ?
 		ALLOW FILTERING
-`, subject, messageId)
+`, subject, messageId) // TODO : Don't Allow Filtering
 
 	err := query.Scan(&message.Id, &message.Body, &expiration)
 	if err != nil {

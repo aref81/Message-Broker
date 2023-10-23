@@ -1,7 +1,6 @@
 package db
 
 import (
-	"math/rand"
 	"therealbroker/internal/broker/model"
 	"time"
 )
@@ -26,9 +25,9 @@ type Dbms interface {
 
 func GenerateUniqueID() int {
 	timestamp := int(time.Now().UnixNano())
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	randomPart := r.Int()
-	uniqueID := timestamp + randomPart
+	//r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	//randomPart := r.Int()
+	uniqueID := timestamp + 1
 	if uniqueID < 0 {
 		uniqueID = -uniqueID
 	}

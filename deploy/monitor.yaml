@@ -1,0 +1,30 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: broker
+  labels:
+    app: broker
+spec:
+  selector:
+    matchLabels:
+      app: broker
+  endpoints:
+    - port: grpc
+      path: /metrics
+      interval: 10s
+
+---
+
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus
+spec:
+  serviceAccountName: prometheus
+  serviceMonitorSelector:
+    matchLabels:
+      env: staging
+  resources:
+    requests:
+      memory: 200Mi
+      cpu: 2

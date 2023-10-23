@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cassandra
+  labels:
+    app: cassandra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cassandra
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cassandra
+    spec:
+      containers:
+        - name: cassandra-container
+          image: cassandra:latest
+          ports:
+            - containerPort: 9042
+          env:
+            - name: CASSANDRA_PASSWORD
+              value: "123456"
+            - name: CASSANDRA_USER
+              value: cassandra
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra-service
+  labels:
+    app.kubernetes.io/name: cassandra
+spec:
+  type: NodePort
+  ports:
+    - name: casan
+      port: 9042
+      nodePort: 30400
+      targetPort: 9042
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: cassandra

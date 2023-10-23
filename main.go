@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"therealbroker/api/proto/broker/api/proto"
 	"therealbroker/internal/broker/model"
@@ -81,23 +80,6 @@ func main() {
 	//if err := server.Serve(listener); err != nil {
 	//	log.Fatalf("Server serve failed: %v", err)
 	//}
-
-	seen := make(map[int64]bool)
-
-	for i := 0; i < 1000000000; i++ {
-		id := generateUniqueID()
-		if seen[id] {
-			fmt.Println("Duplicates")
-			return // Found a duplicate
-		}
-		seen[id] = true
-
-		if i%10000 == 0 {
-			fmt.Println(i)
-		}
-	}
-
-	fmt.Println("No Duplicates")
 
 }
 

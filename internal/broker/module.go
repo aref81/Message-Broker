@@ -2,6 +2,8 @@ package broker
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/go-redis/redis/v8"
 	"github.com/opentracing/opentracing-go"
 	"github.com/sirupsen/logrus"
 	"sync"
@@ -13,11 +15,12 @@ import (
 type Module struct {
 	subsMu      sync.Mutex
 	dbms        db.Dbms
+	redisClient *redis.Client
 	isClosed    bool
-	subscribers map[string]map[chan model.Message]struct{}
+	//subscribers map[string]map[chan model.Message]struct{}
 }
 
-func NewModule(dbType int) broker.Broker {
+func NewModule(redisClient *redis.Client, dbType int) broker.Broker {
 	logger := logrus.New()
 
 	var dbms db.Dbms
@@ -43,8 +46,9 @@ func NewModule(dbType int) broker.Broker {
 	return &Module{
 		subsMu:      sync.Mutex{},
 		dbms:        dbms,
+		redisClient: redisClient,
 		isClosed:    false,
-		subscribers: make(map[string]map[chan model.Message]struct{}),
+		//subscribers: make(map[string]map[chan model.Message]struct{}),
 	}
 }
 
@@ -52,11 +56,8 @@ func (m *Module) Close() error {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 
-	for subject, subscribers := range m.subscribers {
-		for ch := range subscribers {
-			close(ch)
-		}
-		delete(m.subscribers, subject)
+	if err := m.redisClient.Close(); err != nil {
+		return err
 	}
 
 	if err := m.dbms.Close(); err != nil {
@@ -73,20 +74,24 @@ func (m *Module) Publish(ctx context.Context, subject string, msg model.Message)
 		return -1, broker.ErrUnavailable
 	}
 
-	span, _ := opentracing.StartSpanFromContext(ctx, "publish: module")
-	defer span.Finish()
+	//span, _ := opentracing.StartSpanFromContext(ctx, "publish: module")
+	//defer span.Finish()
+
 	messageID, err := m.dbms.SendMessage(msg, subject)
 	if err != nil {
 		return -1, err
 	}
 
-	subscribers := m.subscribers[subject]
-	for ch := range subscribers {
-		select {
-		case ch <- msg:
-		default:
-			// skip subscribers that are not ready to receive -> do nothing
-		}
+	msg.Id = messageID
+
+	msgJSON, err := json.Marshal(msg)
+	if err != nil {
+		return -1, err
+	}
+
+	err = m.redisClient.Publish(ctx, subject, msgJSON).Err()
+	if err != nil {
+		return -1, err
 	}
 
 	return messageID, nil
@@ -104,19 +109,35 @@ func (m *Module) Subscribe(ctx context.Context, subject string) (<-chan model.Me
 	defer m.subsMu.Unlock()
 
 	ch := make(chan model.Message, 100)
-	subscribers, ok := m.subscribers[subject]
-	if !ok {
-		subscribers = make(map[chan model.Message]struct{})
-		m.subscribers[subject] = subscribers
+
+	pubsub := m.redisClient.Subscribe(ctx, subject)
+	_, err := pubsub.Receive(ctx)
+	if err != nil {
+		return nil, err
 	}
-	subscribers[ch] = struct{}{}
 
 	go func() {
-		<-ctx.Done()
-		m.subsMu.Lock()
-		defer m.subsMu.Unlock()
-		delete(subscribers, ch)
-		close(ch)
+		defer pubsub.Close()
+
+		for {
+			msg, err := pubsub.ReceiveMessage(ctx)
+			if err != nil {
+				close(ch)
+				return
+			}
+
+			var message model.Message
+			err = json.Unmarshal([]byte(msg.Payload), &message)
+			if err != nil {
+				continue
+			}
+
+			select {
+			case ch <- message:
+			default:
+				// Skip subscribers that are not ready to receive (buffer full)
+			}
+		}
 	}()
 
 	return ch, nil

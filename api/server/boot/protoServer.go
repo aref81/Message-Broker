@@ -20,8 +20,8 @@ type ProtoServer struct {
 }
 
 func (b ProtoServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) (*proto.PublishResponse, error) {
-	span := b.Tracer.StartSpan("publish : protoServer")
-	defer span.Finish()
+	//span := b.Tracer.StartSpan("publish : protoServer")
+	//defer span.Finish()
 	startTime := time.Now()
 
 	msg := model.Message{
@@ -30,17 +30,17 @@ func (b ProtoServer) Publish(ctx context.Context, pubReq *proto.PublishRequest) 
 		Expiration: time.Duration(pubReq.ExpirationSeconds),
 	}
 
-	spandex := opentracing.ContextWithSpan(context.Background(), span)
-	id, err := b.Broker.Publish(spandex, pubReq.Subject, msg)
+	//spandex := opentracing.ContextWithSpan(context.Background(), span)
+	id, err := b.Broker.Publish(ctx, pubReq.Subject, msg)
 
 	//Metric
 	methodDuration.WithLabelValues("publish").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
 
 	if err != nil {
 		//Metric
-		//failedRPCCalls.WithLabelValues("subscribe").Inc()
+		failedRPCCalls.WithLabelValues("subscribe").Inc()
 
-		//logRPCError("Publish", err)
+		logRPCError("Publish", err)
 		return nil, err
 	}
 
@@ -61,6 +61,7 @@ func (b ProtoServer) Subscribe(subReq *proto.SubscribeRequest, subServer proto.B
 
 	//Metric
 	methodDuration.WithLabelValues("subscribe").Observe(float64(time.Since(startTime)) / float64(time.Nanosecond))
+	activeSubscribersGauge.Inc()
 
 	if err != nil {
 		//Metric
@@ -72,25 +73,46 @@ func (b ProtoServer) Subscribe(subReq *proto.SubscribeRequest, subServer proto.B
 	//Metric
 	successfulRPCCalls.WithLabelValues("Publish").Inc()
 
-	go func() {
-		for {
-			select {
-			case msg := <-ch:
-				protoMsg := &proto.MessageResponse{Body: []byte(msg.Body)}
+	for {
+		select {
+		case msg := <-ch:
+			protoMsg := &proto.MessageResponse{Body: []byte(msg.Body)}
 
-				if err := subServer.Send(protoMsg); err != nil {
-					logRPCError("Subscribe", err)
-					return
-				}
-			case <-subServer.Context().Done():
-				//observeRPCCall("Subscribe", startTime)
-				return
+			if err := subServer.Send(protoMsg); err != nil {
+				logRPCError("Subscribe", err)
+				activeSubscribersGauge.Dec()
+				return err
 			}
+		case <-subServer.Context().Done():
+			logrus.Println("Subscriber Left")
+			activeSubscribersGauge.Dec()
+			return err
 		}
-	}()
-
-	return nil
+	}
 }
+
+//func (b ProtoServer) Subscribe(subReq *proto.SubscribeRequest, subServer proto.Broker_SubscribeServer) error {
+//	logrus.Println("REQ")
+//
+//	ch, _ := b.Broker.Subscribe(context.Background(), subReq.Subject)
+//	wg := sync.WaitGroup{}
+//
+//	wg.Add(1)
+//	go func() {
+//		for {
+//			msg := <-ch
+//			protoMsg := &proto.MessageResponse{Body: []byte(msg.Body)}
+//
+//			if err := subServer.Send(protoMsg); err != nil {
+//				logRPCError("Subscribe", err)
+//				return
+//			}
+//		}
+//	}()
+//
+//	wg.Wait()
+//	return nil
+//}
 
 func (b ProtoServer) Fetch(ctx context.Context, fetchReq *proto.FetchRequest) (*proto.MessageResponse, error) {
 	span := b.Tracer.StartSpan("fetch : protoServer")

@@ -1,21 +1,17 @@
 package main
 
 import (
+	"fmt"
 	_ "fmt"
-	"github.com/opentracing/opentracing-go"
-	"github.com/uber/jaeger-client-go"
-	"github.com/uber/jaeger-client-go/config"
-	"io"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 	"net"
 	"os"
 	_ "strconv"
-	"therealbroker/api/server/boot"
-	"therealbroker/pkg/utils/db"
-
-	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
 	"therealbroker/api/proto/broker/api/proto"
+	"therealbroker/api/server/boot"
 	broker2 "therealbroker/internal/broker"
+	"therealbroker/pkg/utils/db"
 )
 
 func main() {
@@ -23,44 +19,64 @@ func main() {
 	logger.SetLevel(logrus.InfoLevel)
 	logger.Out = os.Stdout
 
+	connStr, ex := os.LookupEnv("DBMS")
+	if !ex {
+		logrus.Printf("The env variable %s is not set.\n", "DBMS")
+		connStr = "2"
+	}
+	fmt.Println(connStr)
+
+	//dbChoice, err := strconv.Atoi(connStr)
+	//if err != nil {
+	//	logger.Println("Invalid argument: DBMS")
+	//	dbChoice = 0
+	//}
+
+	// redis
+	redisClient, err := boot.InitRedis()
+	if err != nil {
+		logger.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	logger.Println("Connected to redis successfully")
+
 	// tcp server
 	listener, err := net.Listen("tcp", ":8081")
 	if err != nil {
 		logger.Fatalf("cannot create listener: %v", err)
 	}
 
-	//jaeger
-	cfg := &config.Configuration{
-		ServiceName: "publisher",
-
-		Sampler: &config.SamplerConfig{
-			Type:  "const",
-			Param: 1,
-		},
-
-		Reporter: &config.ReporterConfig{
-			LogSpans:           true,
-			LocalAgentHostPort: "jaeger:6831",
-		},
-	}
+	//jaeger.yaml
+	//cfg := &envoy.Configuration{
+	//	ServiceName: "publisher",
+	//
+	//	Sampler: &envoy.SamplerConfig{
+	//		Type:  "const",
+	//		Param: 0.0001,
+	//	},
+	//
+	//	Reporter: &envoy.ReporterConfig{
+	//		LogSpans:           true,
+	//		LocalAgentHostPort: "jaeger:6831",
+	//	},
+	//}
 
 	// tracer
-	tracer, closer, err := cfg.NewTracer(config.Logger(jaeger.StdLogger))
-	if err != nil {
-		logger.Fatalf("ERROR: cannot init Jaeger: %v\n", err)
-	}
-	defer func(closer io.Closer) {
-		err := closer.Close()
-		if err != nil {
-			logger.Fatalf("ERROR: cannot close tracer: %v\n", err)
-		}
-	}(closer)
-	opentracing.SetGlobalTracer(tracer)
+	//tracer, closer, err := cfg.NewTracer(envoy.Logger(jaeger.yaml.StdLogger))
+	//if err != nil {
+	//	logger.Fatalf("ERROR: cannot init Jaeger: %v\n", err)
+	//}
+	//defer func(closer io.Closer) {
+	//	err := closer.Close()
+	//	if err != nil {
+	//		logger.Fatalf("ERROR: cannot close tracer: %v\n", err)
+	//	}
+	//}(closer)
+	//opentracing.SetGlobalTracer(tracer)
 
 	// grpc server
 	server := grpc.NewServer()
 	proto.RegisterBrokerServer(server, &boot.ProtoServer{
-		Broker: broker2.NewModule(db.POSTGRES),
+		Broker: broker2.NewModule(redisClient, db.POSTGRES),
 		Tracer: nil,
 	})
 
